@@ -1,0 +1,39 @@
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+.secrets/
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Local agent and editor state
+.agents/
+.codex/
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Operating-system metadata
+.DS_Store
+Thumbs.db
+
+# Logs, temporary files, and local caches
+*.log
+logs/
+tmp/
+temp/
+.cache/
+
+# Local runtime environments
+.venv/
+
+# Python and package-build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/

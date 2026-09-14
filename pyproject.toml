@@ -1,0 +1,14 @@
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "solar-platform-backend"
+version = "0.1.0"
+description = "Production-grade ecommerce backend foundation for a solar-energy platform."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/solar_platform"]

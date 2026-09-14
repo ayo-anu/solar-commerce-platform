@@ -1,0 +1,1 @@
+"""Solar platform backend package."""
