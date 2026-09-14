@@ -1,5 +1,5 @@
-from importlib.metadata import distribution
 import unittest
+from importlib.metadata import distribution
 
 
 class PackageImportSmokeTest(unittest.TestCase):

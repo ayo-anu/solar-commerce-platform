@@ -12,3 +12,38 @@ dependencies = []
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/solar_platform"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.16.7,<0.17",
+]
+
+[tool.ruff]
+line-length = 88
+indent-width = 4
+src = ["src"]
+include = [
+    "src/**/*.py",
+    "tests/**/*.py",
+]
+
+[tool.ruff.lint]
+select = [
+    "A",
+    "B",
+    "E4",
+    "E7",
+    "E9",
+    "F",
+    "I",
+    "N",
+    "RUF",
+    "UP",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+skip-magic-trailing-comma = false
+docstring-code-format = false

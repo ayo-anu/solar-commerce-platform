@@ -27,6 +27,7 @@ logs/
 tmp/
 temp/
 .cache/
+.ruff_cache/
 
 # Local runtime environments
 .venv/

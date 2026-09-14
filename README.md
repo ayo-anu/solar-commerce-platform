@@ -66,6 +66,25 @@ uv run --locked --no-sync python -P -m unittest discover \
 reconciling the environment. The current test covers installed-distribution
 discovery and package importability only; it is not application or HTTP testing.
 
+### Check and format Python code
+
+After synchronizing the environment, run the Python lint and formatting checks:
+
+```bash
+uv run --locked --no-sync ruff check src tests
+uv run --locked --no-sync ruff format --check src tests
+```
+
+To apply intentional, reviewable fixes and formatting changes, run:
+
+```bash
+uv run --locked --no-sync ruff check --fix src tests
+uv run --locked --no-sync ruff format src tests
+```
+
+Review the resulting diff and rerun both check commands before considering the
+change valid. Ruff fixes are not a substitute for code review.
+
 ### Dependency-addition policy
 
 Add an authorized runtime/application dependency with:
@@ -122,8 +141,8 @@ The repository policy is:
   committed only when its owning task authorizes it.
 - Local agent/editor state, OS noise, logs, temporary/cache data, local
   environment files, secret-key formats, `.venv/`, and generated Python/build
-  artifacts are ignored. pytest, type-checker, linter, frontend, and coverage
-  exclusions remain deferred until their tools are introduced.
+  artifacts are ignored. pytest, type-checker, frontend, and coverage exclusions
+  remain deferred until their tools are introduced.
 - Automated agents must not stage, create branches, or commit merely because a
   task is complete. A Git commit always requires separate explicit user
   authorization.
