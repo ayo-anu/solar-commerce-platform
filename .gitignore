@@ -29,6 +29,7 @@ temp/
 .cache/
 .ruff_cache/
 .mypy_cache/
+.pytest_cache/
 
 # Local runtime environments
 .venv/

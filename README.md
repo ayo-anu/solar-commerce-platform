@@ -71,15 +71,15 @@ discovery and package importability only; it is not application or HTTP testing.
 After synchronizing the environment, run the Python lint and formatting checks:
 
 ```bash
-uv run --locked --no-sync ruff check src tests
-uv run --locked --no-sync ruff format --check src tests
+uv run --locked --no-sync ruff check src tests scripts
+uv run --locked --no-sync ruff format --check src tests scripts
 ```
 
 To apply intentional, reviewable fixes and formatting changes, run:
 
 ```bash
-uv run --locked --no-sync ruff check --fix src tests
-uv run --locked --no-sync ruff format src tests
+uv run --locked --no-sync ruff check --fix src tests scripts
+uv run --locked --no-sync ruff format src tests scripts
 ```
 
 Review the resulting diff and rerun both check commands before considering the
@@ -87,14 +87,47 @@ change valid. Ruff fixes are not a substitute for code review.
 
 ### Type-check Python code
 
-After synchronizing the environment, run strict type checking across the source
-and test trees:
+After synchronizing the environment, run strict type checking across source,
+tests, and local scripts:
 
 ```bash
 uv run --locked --no-sync mypy
 ```
 
 The checked paths and strictness policy are defined in `pyproject.toml`.
+
+### Run pytest suites
+
+After `uv sync --locked`, run the complete suite or select a marker:
+
+```bash
+uv run --locked --no-sync pytest
+uv run --locked --no-sync pytest -m integration
+uv run --locked --no-sync pytest -m "integration and not migration"
+uv run --locked --no-sync pytest -m unit
+uv run --locked --no-sync pytest -m migration
+uv run --locked --no-sync pytest -m "not slow"
+uv run --locked --no-sync pytest -m slow
+```
+
+`unit` and `integration` normally classify isolation level; migration tests
+normally also carry `integration`, while `slow` may overlap either category.
+The current package-import smoke test is `integration`. Selections with no
+matching tests return pytest exit status 5; this is expected for the current
+`unit`, `migration`, and `slow` selections.
+
+### Run the local quality gate
+
+Synchronize the environment first, then run the four existing checks together:
+
+```bash
+uv sync --locked
+uv run --locked --no-sync python -P scripts/quality.py
+```
+
+This runs Ruff lint, Ruff format checking, strict mypy, and the complete pytest
+suite in that order. It stops at the first failure; `--no-sync` prevents the
+quality invocation itself from implicitly reconciling the environment.
 
 ### Dependency-addition policy
 

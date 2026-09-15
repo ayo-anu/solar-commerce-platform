@@ -1,0 +1,50 @@
+name: Quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: >-
+    ${{ github.event_name == 'pull_request'
+        && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number)
+        || format('{0}-run-{1}', github.workflow, github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.12.1"
+          enable-cache: false
+
+      - name: Install Python 3.12
+        run: uv python install 3.12
+
+      - name: Verify uv version
+        run: uv --version
+
+      - name: Find Python 3.12
+        run: uv python find 3.12
+
+      - name: Check lock
+        run: uv lock --check
+
+      - name: Synchronize locked environment
+        run: uv sync --locked --python 3.12
+
+      - name: Run shared quality command
+        run: uv run --locked --no-sync python -P scripts/quality.py
