@@ -15,6 +15,7 @@ packages = ["src/solar_platform"]
 
 [dependency-groups]
 dev = [
+    "mypy>=2.3.1,<2.4",
     "ruff>=0.16.7,<0.17",
 ]
 
@@ -47,3 +48,8 @@ indent-style = "space"
 line-ending = "lf"
 skip-magic-trailing-comma = false
 docstring-code-format = false
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src", "tests"]
+strict = true

@@ -28,6 +28,7 @@ tmp/
 temp/
 .cache/
 .ruff_cache/
+.mypy_cache/
 
 # Local runtime environments
 .venv/

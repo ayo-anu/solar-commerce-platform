@@ -85,6 +85,17 @@ uv run --locked --no-sync ruff format src tests
 Review the resulting diff and rerun both check commands before considering the
 change valid. Ruff fixes are not a substitute for code review.
 
+### Type-check Python code
+
+After synchronizing the environment, run strict type checking across the source
+and test trees:
+
+```bash
+uv run --locked --no-sync mypy
+```
+
+The checked paths and strictness policy are defined in `pyproject.toml`.
+
 ### Dependency-addition policy
 
 Add an authorized runtime/application dependency with:
