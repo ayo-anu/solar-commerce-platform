@@ -6,13 +6,28 @@ supporting ecommerce and later corporate project workflows.
 
 ## Current state
 
-- Foundation status: reproducible Python package skeleton complete
-- Application implementation: importable package scaffold only; behavior not started
+- Foundation status: B2 application architecture, configuration, and HTTP
+  foundation implemented and accepted; B2 phase exit pending final approval
+- Application implementation: FastAPI application factory with a reviewed,
+  database-free operational HTTP surface
 - Technology direction: Python/FastAPI/PostgreSQL modular monolith
 
-Development proceeds in small, reviewed changes. Application behavior,
-jurisdiction-sensitive behavior, and live-business integrations will be added
-only when their requirements and validation boundaries are established.
+The current B2 foundation includes:
+
+- a fresh FastAPI application from `create_app(settings)`;
+- immutable typed configuration for development, test, and production;
+- disclosure-safe RFC 9457 Problem Details and validation-error translation;
+- canonical request correlation through `X-Request-ID`;
+- database-independent `GET /health/live` process liveness;
+- OpenAPI at `/openapi.json` and Swagger UI at `/docs`;
+- an explicit, currently resource-free application lifespan boundary; and
+- structured, redaction-aware terminal request logging as JSON Lines to stderr.
+
+It does not yet include PostgreSQL, persistence, migrations, dependency
+readiness, authentication, business APIs, a server/deployment entrypoint, or
+other later-phase behavior. Development continues in small, reviewed changes;
+jurisdiction-sensitive behavior and live-business integrations are added only
+when their requirements and validation boundaries are established.
 
 ## Backend development workflow
 
@@ -51,7 +66,7 @@ approved locked dependency state:
 uv sync --locked
 ```
 
-### Run the current smoke test
+### Run the installed-package smoke test
 
 Synchronize first, then run:
 
@@ -63,8 +78,9 @@ uv run --locked --no-sync python -P -m unittest discover \
 ```
 
 `--no-sync` prevents the test invocation itself from implicitly modifying or
-reconciling the environment. The current test covers installed-distribution
-discovery and package importability only; it is not application or HTTP testing.
+reconciling the environment. This focused integration smoke test covers
+installed-distribution discovery and package importability. Application and
+HTTP behavior are covered by the pytest suites below.
 
 ### Check and format Python code
 
@@ -112,9 +128,13 @@ uv run --locked --no-sync pytest -m slow
 
 `unit` and `integration` normally classify isolation level; migration tests
 normally also carry `integration`, while `slow` may overlap either category.
-The current package-import smoke test is `integration`. Selections with no
-matching tests return pytest exit status 5; this is expected for the current
-`unit`, `migration`, and `slow` selections.
+The current unit suite covers settings, application composition, correlation,
+Problem Details, request logging, and architecture boundaries. Integration
+tests cover installed-package behavior and the real ASGI stack for liveness,
+lifecycle, OpenAPI, error, correlation, and logging behavior. The `unit` and
+`integration` selections are populated. Selections with no matching tests
+return pytest exit status 5; this is currently expected for `migration` and
+`slow`.
 
 ### Run the local quality gate
 
