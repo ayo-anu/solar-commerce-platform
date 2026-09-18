@@ -8,6 +8,8 @@ from fastapi import FastAPI
 from solar_platform.api.correlation import correlation_middleware
 from solar_platform.api.health import router as health_router
 from solar_platform.api.problems import register_problem_handlers
+from solar_platform.api.request_logging import bind_request_logging
+from solar_platform.logging_config import configure_logging
 from solar_platform.settings import Settings, load_settings
 
 
@@ -28,7 +30,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url=None,
         lifespan=_lifespan,
     )
+    app.middleware("http")(bind_request_logging(_validated_settings.environment.value))
     app.middleware("http")(correlation_middleware)
     register_problem_handlers(app)
     app.include_router(health_router)
+    configure_logging()
     return app

@@ -108,6 +108,14 @@ REAL_MODULE_CLASSIFICATIONS = (
     ),
     ModuleClassification(
         match_kind="exact",
+        pattern="solar_platform.logging_config",
+        capability="platform_logging",
+        responsibility="outbound_infrastructure",
+        visibility="private",
+        rationale="B2.2.6 structured JSON logging output boundary.",
+    ),
+    ModuleClassification(
+        match_kind="exact",
         pattern="solar_platform.api",
         capability="platform_http",
         responsibility="package_initializer",
@@ -137,6 +145,14 @@ REAL_MODULE_CLASSIFICATIONS = (
         responsibility="inbound_api",
         visibility="private",
         rationale="B2.2.4 RFC 9457 and framework-error translation boundary.",
+    ),
+    ModuleClassification(
+        match_kind="exact",
+        pattern="solar_platform.api.request_logging",
+        capability="platform_http",
+        responsibility="inbound_api",
+        visibility="private",
+        rationale="B2.2.6 disclosure-safe terminal request-event boundary.",
     ),
 )
 
@@ -511,6 +527,34 @@ def test_composition_can_import_configuration() -> None:
             "configuration",
             "private",
             "Fixture configuration boundary.",
+        ),
+    )
+    assert_architecture(modules, classifications)
+
+
+def test_composition_can_wire_private_logging_boundaries() -> None:
+    modules = (
+        SourceModule(
+            "solar_platform.bootstrap",
+            "from solar_platform import logging_config\n"
+            "from solar_platform.api import request_logging\n",
+        ),
+        SourceModule("solar_platform.logging_config", ""),
+        SourceModule("solar_platform.api.request_logging", ""),
+    )
+    classifications = (
+        _classification(
+            "solar_platform.bootstrap", "platform_root", "composition", "private"
+        ),
+        _classification(
+            "solar_platform.logging_config",
+            "platform_logging",
+            "outbound_infrastructure",
+        ),
+        _classification(
+            "solar_platform.api.request_logging",
+            "platform_http",
+            "inbound_api",
         ),
     )
     assert_architecture(modules, classifications)

@@ -22,6 +22,7 @@ from solar_platform.api.problems import (
     request_validation_exception_handler,
     unexpected_exception_handler,
 )
+from solar_platform.api.request_logging import bind_request_logging
 from solar_platform.settings import RuntimeEnvironment, Settings, SettingsLoadError
 
 pytestmark = pytest.mark.unit
@@ -147,8 +148,10 @@ def test_factory_registers_only_reviewed_http_edge_behavior() -> None:
         {"GET"},
         get_liveness.__name__,
     )
-    assert len(app.user_middleware) == 1
+    assert len(app.user_middleware) == 2
     assert app.user_middleware[0].kwargs["dispatch"] is correlation_middleware
+    request_logging = app.user_middleware[1].kwargs["dispatch"]
+    assert getattr(request_logging, "__name__", None) == "request_logging_middleware"
     expected_handlers = {
         **default_handlers,
         StarletteHTTPException: http_exception_handler,
@@ -164,3 +167,27 @@ def test_factory_registers_only_reviewed_http_edge_behavior() -> None:
     assert app.docs_url == "/docs"
     assert app.swagger_ui_oauth2_redirect_url is None
     assert app.redoc_url is None
+
+
+def test_factory_configures_logging_without_process_global_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    def tracked_configuration() -> None:
+        nonlocal calls
+        calls += 1
+
+    bound_environments: list[str] = []
+
+    def tracked_binding(environment: str) -> object:
+        bound_environments.append(environment)
+        return bind_request_logging(environment)
+
+    monkeypatch.setattr(app_module, "configure_logging", tracked_configuration)
+    monkeypatch.setattr(app_module, "bind_request_logging", tracked_binding)
+
+    app_module.create_app(Settings(environment=RuntimeEnvironment.PRODUCTION))
+
+    assert calls == 1
+    assert bound_environments == ["production"]
