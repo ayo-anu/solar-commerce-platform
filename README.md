@@ -7,9 +7,11 @@ supporting ecommerce and later corporate project workflows.
 ## Current state
 
 - Foundation status: B2 application architecture, configuration, and HTTP
-  foundation implemented and accepted; B2 phase exit pending final approval
+  foundation implemented, accepted, and approved for phase exit
 - Application implementation: FastAPI application factory with a reviewed,
   database-free operational HTTP surface
+- Local infrastructure: separate Docker Compose PostgreSQL development and test
+  services; application database wiring remains deferred
 - Technology direction: Python/FastAPI/PostgreSQL modular monolith
 
 The current B2 foundation includes:
@@ -23,11 +25,12 @@ The current B2 foundation includes:
 - an explicit, currently resource-free application lifespan boundary; and
 - structured, redaction-aware terminal request logging as JSON Lines to stderr.
 
-It does not yet include PostgreSQL, persistence, migrations, dependency
-readiness, authentication, business APIs, a server/deployment entrypoint, or
-other later-phase behavior. Development continues in small, reviewed changes;
-jurisdiction-sensitive behavior and live-business integrations are added only
-when their requirements and validation boundaries are established.
+It does not yet include application persistence, migrations, database
+dependency readiness, authentication, business APIs, a server/deployment
+entrypoint, or other later-phase behavior. Development continues in small,
+reviewed changes; jurisdiction-sensitive behavior and live-business
+integrations are added only when their requirements and validation boundaries
+are established.
 
 ## Backend development workflow
 
@@ -148,6 +151,139 @@ uv run --locked --no-sync python -P scripts/quality.py
 This runs Ruff lint, Ruff format checking, strict mypy, and the complete pytest
 suite in that order. It stops at the first failure; `--no-sync` prevents the
 quality invocation itself from implicitly reconciling the environment.
+
+## Local PostgreSQL
+
+The Compose configuration provides independent PostgreSQL 18.6 services for
+development and tests. Development data uses a persistent named volume. Test
+data uses a disposable in-memory filesystem and is lost whenever the test
+container is stopped or replaced. Neither service is connected to the Python
+application yet.
+
+The supported interface is the current Compose Specification through the
+`docker compose` CLI. It must support profiles, secrets, named volumes, tmpfs,
+health checks, and `docker compose up --wait`. Legacy `docker-compose` v1 is not
+supported.
+
+Verify Docker before setup:
+
+```bash
+docker info
+docker compose version
+```
+
+### Create local database secrets
+
+From a fresh checkout, run the following once. It creates separate random
+passwords without displaying them, refuses to replace existing secret files,
+and applies restrictive host permissions:
+
+```bash
+python3 - <<'PY'
+import os
+import secrets
+from pathlib import Path
+
+secret_dir = Path(".secrets")
+targets = (
+    secret_dir / "postgres-dev-password",
+    secret_dir / "postgres-test-password",
+)
+
+existing = [str(path) for path in targets if path.exists()]
+if existing:
+    raise SystemExit(
+        "Refusing to overwrite existing secret files: " + ", ".join(existing)
+    )
+
+secret_dir.mkdir(mode=0o700, exist_ok=True)
+secret_dir.chmod(0o700)
+
+for path in targets:
+    descriptor = os.open(
+        path,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+        0o600,
+    )
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        stream.write(secrets.token_urlsafe(48) + "\n")
+    path.chmod(0o600)
+PY
+```
+
+Confirm that Git ignores the files and does not track or report them:
+
+```bash
+git check-ignore -v \
+  .secrets/postgres-dev-password \
+  .secrets/postgres-test-password
+git ls-files -- .secrets
+git status --short --untracked-files=all -- .secrets
+```
+
+The last two commands must produce no output. Passwords are exposed to each
+container only through its own Compose secret and `POSTGRES_PASSWORD_FILE`.
+Changing the development secret after the database is initialized does not
+rotate the stored PostgreSQL password; rotate it with SQL or deliberately reset
+the development volume.
+
+### Start, inspect, and stop PostgreSQL
+
+Start the persistent development database:
+
+```bash
+docker compose up -d --wait postgres-dev
+```
+
+Start the isolated test database when needed:
+
+```bash
+docker compose --profile test up -d --wait postgres-test
+```
+
+The default loopback ports are `5432` for development and `5433` for tests.
+Override them without changing the Compose file when a port is occupied:
+
+```bash
+SOLAR_PLATFORM_POSTGRES_DEV_PORT=15432 \
+  docker compose up -d --wait postgres-dev
+SOLAR_PLATFORM_POSTGRES_TEST_PORT=15433 \
+  docker compose --profile test up -d --wait postgres-test
+```
+
+Inspect service status and query each server with the client inside its own
+container:
+
+```bash
+docker compose --profile test ps
+docker compose exec postgres-dev sh -lc \
+  'psql --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" --command="SHOW server_version;"'
+docker compose --profile test exec postgres-test sh -lc \
+  'psql --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" --command="SHOW server_version;"'
+```
+
+Stop and remove the containers and network while preserving development data:
+
+```bash
+docker compose down
+```
+
+Reset the disposable test database deterministically:
+
+```bash
+docker compose --profile test rm --stop --force postgres-test
+docker compose --profile test up -d --wait postgres-test
+```
+
+To remove the persistent development database too, use the following explicit
+destructive reset. It permanently deletes the Compose project's named volume:
+
+```bash
+docker compose down --volumes
+```
+
+Test tmpfs is initially limited to 256 MiB. This is a local operational default
+and may be adjusted if measured integration workloads require more capacity.
 
 ### Dependency-addition policy
 
