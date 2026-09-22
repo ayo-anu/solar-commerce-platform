@@ -11,6 +11,8 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastapi>=0.141.1,<0.142",
     "pydantic>=2.13.5,<2.14",
+    "psycopg[binary]>=3.3.6,<3.4",
+    "sqlalchemy>=2.0.54,<2.1",
     "starlette>=1.6.0,<1.7",
 ]
 
@@ -37,6 +39,7 @@ strict_markers = true
 markers = [
     "unit: tests isolated from external services, persistent infrastructure, and multi-component boundaries",
     "integration: tests exercising installed-package, component, process, or infrastructure boundaries",
+    "postgres: tests requiring the opt-in PostgreSQL Compose test service",
     "migration: integration tests concerned specifically with schema migration and compatibility behavior",
     "slow: tests intentionally separated from the fast feedback loop because of material runtime or resource cost",
 ]

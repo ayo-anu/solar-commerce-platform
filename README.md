@@ -285,6 +285,51 @@ docker compose down --volumes
 Test tmpfs is initially limited to 256 MiB. This is a local operational default
 and may be adjusted if measured integration workloads require more capacity.
 
+### Opt-in Python database connection checks
+
+The B3.1.2 SQLAlchemy engine builder is not wired into the application. The
+ordinary quality command remains database-free: PostgreSQL-marked tests skip
+unless `--run-postgres` is supplied. Run the explicit checks only against the
+disposable Compose test service:
+
+```bash
+docker compose --profile test up -d --wait postgres-test
+export SOLAR_PLATFORM_DB_HOST=127.0.0.1
+export SOLAR_PLATFORM_DB_PORT=5433
+export SOLAR_PLATFORM_DB_NAME=solar_platform_test
+export SOLAR_PLATFORM_DB_USER=postgres
+export SOLAR_PLATFORM_DB_PASSWORD_FILE=.secrets/postgres-test-password
+uv run --locked --no-sync pytest --run-postgres \
+  -m "integration and postgres" tests/integration/database
+docker compose --profile test rm --stop --force postgres-test
+```
+
+If `SOLAR_PLATFORM_POSTGRES_TEST_PORT` overrides the Compose test port, set
+`SOLAR_PLATFORM_DB_PORT` to the same value. The integration fixture checks the
+published `postgres-test` port, database name, and secret-file path and refuses
+to fall back to the development database. Missing Docker or test configuration
+is a failure when the tests are explicitly enabled, not a silent skip.
+
+The separate database settings loader reads the password file as UTF-8 and
+removes trailing `\n`/`\r` line terminators only. Other leading, internal, and
+trailing whitespace is preserved. This matches the PostgreSQL image's
+`POSTGRES_PASSWORD_FILE` behavior and rejects an empty normalized password.
+Neither the loader nor the engine builder runs during application import or
+startup in B3.1.2.
+
+The optional engine configuration values are:
+
+| Environment variable | Default | Allowed range |
+|---|---:|---:|
+| `SOLAR_PLATFORM_DB_POOL_SIZE` | 2 connections | 1–8 |
+| `SOLAR_PLATFORM_DB_MAX_OVERFLOW` | 1 additional connection | 0–4; pool size plus overflow ≤ 8 |
+| `SOLAR_PLATFORM_DB_POOL_TIMEOUT_SECONDS` | 2 seconds | 1–30 seconds |
+| `SOLAR_PLATFORM_DB_CONNECT_TIMEOUT_SECONDS` | 5 seconds | 2–30 seconds |
+| `SOLAR_PLATFORM_DB_STATEMENT_TIMEOUT_MS` | 15000 milliseconds | 100–60000 milliseconds |
+
+The pool limit applies per engine and process. Pool checkout, establishing a
+connection, and executing an individual statement have distinct timeouts.
+
 ### Dependency-addition policy
 
 Add an authorized runtime/application dependency with:

@@ -60,6 +60,7 @@ class ThirdPartyImportPermission:
     top_level_package: str
     decision_reference: str
     rationale: str
+    source_module: str | None = None
 
 
 @dataclass(frozen=True)
@@ -105,6 +106,14 @@ REAL_MODULE_CLASSIFICATIONS = (
             "B2.2.2 outer process-configuration boundary kept outside domain "
             "and application modules."
         ),
+    ),
+    ModuleClassification(
+        match_kind="exact",
+        pattern="solar_platform.database_engine",
+        capability="platform_database",
+        responsibility="outbound_infrastructure",
+        visibility="private",
+        rationale="B3.1.2 opt-in PostgreSQL engine configuration boundary.",
     ),
     ModuleClassification(
         match_kind="exact",
@@ -158,6 +167,13 @@ REAL_MODULE_CLASSIFICATIONS = (
 
 # Architecture permission only; an entry never authorizes adding a dependency.
 THIRD_PARTY_IMPORT_ALLOWLIST = (
+    ThirdPartyImportPermission(
+        responsibility="outbound_infrastructure",
+        top_level_package="sqlalchemy",
+        decision_reference="ADR-002; approved B3.1.2",
+        rationale="The database edge constructs a bounded PostgreSQL engine.",
+        source_module="solar_platform.database_engine",
+    ),
     ThirdPartyImportPermission(
         responsibility="composition",
         top_level_package="fastapi",
@@ -377,6 +393,10 @@ def assert_architecture(
                 allowed = any(
                     permission.responsibility == source_class.responsibility
                     and permission.top_level_package == top_level
+                    and (
+                        permission.source_module is None
+                        or permission.source_module == module.name
+                    )
                     for permission in permissions
                 )
                 if not allowed:
@@ -677,6 +697,26 @@ def test_third_party_import_requires_reviewed_permission() -> None:
         "domain", "approved_lib", "D-TEST", "Fixture-only reviewed permission."
     )
     assert_architecture((module,), classifications, (permission,))
+
+
+def test_sqlalchemy_permission_is_specific_to_database_engine() -> None:
+    permitted = SourceModule("solar_platform.database_engine", "import sqlalchemy\n")
+    rejected = SourceModule("solar_platform.logging_config", "import sqlalchemy\n")
+    database_classification = next(
+        item for item in REAL_MODULE_CLASSIFICATIONS if item.pattern == permitted.name
+    )
+    logging_classification = next(
+        item for item in REAL_MODULE_CLASSIFICATIONS if item.pattern == rejected.name
+    )
+    permission = next(
+        item
+        for item in THIRD_PARTY_IMPORT_ALLOWLIST
+        if item.top_level_package == "sqlalchemy"
+    )
+
+    assert_architecture((permitted,), (database_classification,), (permission,))
+    with pytest.raises(ArchitectureError, match="unauthorized third-party import"):
+        assert_architecture((rejected,), (logging_classification,), (permission,))
 
 
 def test_inbound_api_uses_only_reviewed_http_edge_packages() -> None:
