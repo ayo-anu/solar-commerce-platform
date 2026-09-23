@@ -9,7 +9,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import iter_route_contexts
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import solar_platform
@@ -23,7 +23,12 @@ from solar_platform.api.problems import (
     unexpected_exception_handler,
 )
 from solar_platform.api.request_logging import bind_request_logging
-from solar_platform.settings import RuntimeEnvironment, Settings, SettingsLoadError
+from solar_platform.settings import (
+    DatabaseSettings,
+    RuntimeEnvironment,
+    Settings,
+    SettingsLoadError,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -32,14 +37,26 @@ def _development_settings() -> Settings:
     return Settings(environment=RuntimeEnvironment.DEVELOPMENT)
 
 
+def _database_settings() -> DatabaseSettings:
+    return DatabaseSettings(
+        host="127.0.0.1",
+        port=5432,
+        name="solar_platform_test",
+        user="postgres",
+        password=SecretStr("test-password"),
+    )
+
+
 def test_factory_returns_app_without_retaining_complete_settings() -> None:
     settings = _development_settings()
 
-    app = app_module.create_app(settings)
+    database_settings = _database_settings()
+    app = app_module.create_app(settings, database_settings)
 
     assert isinstance(app, FastAPI)
     assert not hasattr(app.state, "settings")
     assert settings not in vars(app.state).get("_state", {}).values()
+    assert database_settings not in vars(app.state).get("_state", {}).values()
 
 
 def test_explicit_settings_bypass_environment_loading(
@@ -50,23 +67,33 @@ def test_explicit_settings_bypass_environment_loading(
 
     monkeypatch.setattr(app_module, "load_settings", unexpected_load)
 
-    assert isinstance(app_module.create_app(_development_settings()), FastAPI)
+    assert isinstance(
+        app_module.create_app(_development_settings(), _database_settings()), FastAPI
+    )
 
 
 def test_default_factory_loads_settings_exactly_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    calls = 0
+    settings_calls = 0
+    database_calls = 0
 
     def tracked_load() -> Settings:
-        nonlocal calls
-        calls += 1
+        nonlocal settings_calls
+        settings_calls += 1
         return _development_settings()
 
+    def tracked_database_load() -> DatabaseSettings:
+        nonlocal database_calls
+        database_calls += 1
+        return _database_settings()
+
     monkeypatch.setattr(app_module, "load_settings", tracked_load)
+    monkeypatch.setattr(app_module, "load_database_settings", tracked_database_load)
 
     assert isinstance(app_module.create_app(), FastAPI)
-    assert calls == 1
+    assert settings_calls == 1
+    assert database_calls == 1
 
 
 def test_invalid_configuration_prevents_app_construction(
@@ -92,8 +119,8 @@ def test_invalid_configuration_prevents_app_construction(
 def test_repeated_factory_calls_return_distinct_apps() -> None:
     settings = _development_settings()
 
-    first = app_module.create_app(settings)
-    second = app_module.create_app(settings)
+    first = app_module.create_app(settings, _database_settings())
+    second = app_module.create_app(settings, _database_settings())
 
     assert first is not second
 
@@ -129,7 +156,7 @@ def test_imports_have_no_configuration_or_application_side_effects(
 
 
 def test_factory_registers_only_reviewed_http_edge_behavior() -> None:
-    app = app_module.create_app(_development_settings())
+    app = app_module.create_app(_development_settings(), _database_settings())
     default_handlers = FastAPI().exception_handlers
 
     routes = tuple(iter_route_contexts(app.routes))
@@ -140,8 +167,9 @@ def test_factory_registers_only_reviewed_http_edge_behavior() -> None:
         ("/openapi.json", frozenset({"GET", "HEAD"}), "openapi"),
         ("/docs", frozenset({"GET", "HEAD"}), "swagger_ui_html"),
         ("/health/live", frozenset({"GET"}), get_liveness.__name__),
+        ("/health/ready", frozenset({"GET"}), "get_readiness"),
     }
-    assert len(routes) == 3
+    assert len(routes) == 4
     health_route = next(route for route in routes if route.path == "/health/live")
     assert health_route.endpoint is get_liveness
     assert (health_route.methods, health_route.name) == (
@@ -187,7 +215,9 @@ def test_factory_configures_logging_without_process_global_environment(
     monkeypatch.setattr(app_module, "configure_logging", tracked_configuration)
     monkeypatch.setattr(app_module, "bind_request_logging", tracked_binding)
 
-    app_module.create_app(Settings(environment=RuntimeEnvironment.PRODUCTION))
+    app_module.create_app(
+        Settings(environment=RuntimeEnvironment.PRODUCTION), _database_settings()
+    )
 
     assert calls == 1
     assert bound_environments == ["production"]

@@ -8,29 +8,29 @@ supporting ecommerce and later corporate project workflows.
 
 - Foundation status: B2 application architecture, configuration, and HTTP
   foundation implemented, accepted, and approved for phase exit
-- Application implementation: FastAPI application factory with a reviewed,
-  database-free operational HTTP surface
+- Application implementation: FastAPI application factory with database
+  resource lifecycle, independent liveness, and PostgreSQL readiness
 - Local infrastructure: separate Docker Compose PostgreSQL development and test
-  services; application database wiring remains deferred
+  services wired through validated, lazily connecting application infrastructure
 - Technology direction: Python/FastAPI/PostgreSQL modular monolith
 
-The current B2 foundation includes:
+The current backend foundation includes:
 
-- a fresh FastAPI application from `create_app(settings)`;
+- a fresh FastAPI application from `create_app(settings, database_settings)`;
 - immutable typed configuration for development, test, and production;
 - disclosure-safe RFC 9457 Problem Details and validation-error translation;
 - canonical request correlation through `X-Request-ID`;
 - database-independent `GET /health/live` process liveness;
+- disclosure-safe `GET /health/ready` PostgreSQL readiness;
 - OpenAPI at `/openapi.json` and Swagger UI at `/docs`;
-- an explicit, currently resource-free application lifespan boundary; and
+- terminal database-resource shutdown through the application lifespan; and
 - structured, redaction-aware terminal request logging as JSON Lines to stderr.
 
-It does not yet include application persistence, migrations, database
-dependency readiness, authentication, business APIs, a server/deployment
+It does not yet include migrations, database schema/models, repositories,
+business transactions, authentication, business APIs, a server/deployment
 entrypoint, or other later-phase behavior. Development continues in small,
-reviewed changes; jurisdiction-sensitive behavior and live-business
-integrations are added only when their requirements and validation boundaries
-are established.
+reviewed changes; jurisdiction-sensitive behavior and live-business integrations
+are added only when their requirements and validation boundaries are established.
 
 ## Backend development workflow
 
@@ -131,13 +131,13 @@ uv run --locked --no-sync pytest -m slow
 
 `unit` and `integration` normally classify isolation level; migration tests
 normally also carry `integration`, while `slow` may overlap either category.
-The current unit suite covers settings, application composition, correlation,
-Problem Details, request logging, and architecture boundaries. Integration
-tests cover installed-package behavior and the real ASGI stack for liveness,
-lifecycle, OpenAPI, error, correlation, and logging behavior. The `unit` and
-`integration` selections are populated. Selections with no matching tests
-return pytest exit status 5; this is currently expected for `migration` and
-`slow`.
+The current unit suite covers settings, application composition, database
+lifecycle, correlation, Problem Details, request logging, and architecture
+boundaries. Integration tests cover installed-package behavior and the real
+ASGI stack for liveness, readiness, lifecycle, OpenAPI, error, correlation, and
+logging behavior. The `unit` and `integration` selections are populated.
+Selections with no matching tests return pytest exit status 5; this is
+currently expected for `migration` and `slow`.
 
 ### Run the local quality gate
 
@@ -157,8 +157,9 @@ quality invocation itself from implicitly reconciling the environment.
 The Compose configuration provides independent PostgreSQL 18.6 services for
 development and tests. Development data uses a persistent named volume. Test
 data uses a disposable in-memory filesystem and is lost whenever the test
-container is stopped or replaced. Neither service is connected to the Python
-application yet.
+container is stopped or replaced. Each FastAPI application owns one lazily
+connecting Engine, bounded pool, and Session factory built from the database
+configuration below.
 
 The supported interface is the current Compose Specification through the
 `docker compose` CLI. It must support profiles, secrets, named volumes, tmpfs,
@@ -285,12 +286,17 @@ docker compose down --volumes
 Test tmpfs is initially limited to 256 MiB. This is a local operational default
 and may be adjusted if measured integration workloads require more capacity.
 
-### Opt-in Python database connection checks
+### Application database configuration and opt-in checks
 
-The B3.1.2 SQLAlchemy engine builder is not wired into the application. The
-ordinary quality command remains database-free: PostgreSQL-marked tests skip
-unless `--run-postgres` is supplied. Run the explicit checks only against the
-disposable Compose test service:
+Application construction validates database configuration and builds its
+runtime without opening a connection. A PostgreSQL outage therefore does not
+prevent construction or startup: `GET /health/live` remains process-only while
+`GET /health/ready` returns disclosure-safe RFC 9457 status 503 until a complete
+checkout, `SELECT 1`, and connection release succeeds.
+
+The ordinary quality command remains database-free: PostgreSQL-marked tests
+skip unless `--run-postgres` is supplied. Run the explicit engine and lifecycle
+checks only against the disposable Compose test service:
 
 ```bash
 docker compose --profile test up -d --wait postgres-test
@@ -314,8 +320,9 @@ The separate database settings loader reads the password file as UTF-8 and
 removes trailing `\n`/`\r` line terminators only. Other leading, internal, and
 trailing whitespace is preserved. This matches the PostgreSQL image's
 `POSTGRES_PASSWORD_FILE` behavior and rejects an empty normalized password.
-Neither the loader nor the engine builder runs during application import or
-startup in B3.1.2.
+Neither the loader nor the engine builder runs during application import. The
+application factory invokes both, but the Engine remains lazy and startup does
+not probe or connect to PostgreSQL.
 
 The optional engine configuration values are:
 
@@ -329,6 +336,17 @@ The optional engine configuration values are:
 
 The pool limit applies per engine and process. Pool checkout, establishing a
 connection, and executing an individual statement have distinct timeouts.
+
+Database Sessions are short-lived infrastructure resources scoped to one
+top-level application operation, not to an HTTP request. Every scope begins a
+transaction explicitly. Normal and read-only completion without explicit
+commit authorization rolls back and closes; authorized write completion
+commits and closes. A commit failure is not assumed rolled back or blindly
+retried. Sessions are never shared across concurrent work, and synchronous
+database work for one operation must remain in one synchronous execution
+context. Application lifespan shutdown occurs after framework serving work has
+drained, makes the runtime terminal, and attempts Engine disposal once; it does
+not claim to force-close arbitrary checked-out Sessions or connections.
 
 ### Dependency-addition policy
 

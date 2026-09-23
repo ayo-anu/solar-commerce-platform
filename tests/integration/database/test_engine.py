@@ -1,9 +1,6 @@
 """Opt-in PostgreSQL checks against the disposable B3.1.1 test service."""
 
-import os
-import subprocess
 from collections.abc import Iterator
-from pathlib import Path
 
 import pytest
 from sqlalchemy import text
@@ -12,12 +9,9 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
 from solar_platform.database_engine import create_database_engine
-from solar_platform.settings import DatabaseSettings, load_database_settings
+from solar_platform.settings import DatabaseSettings
 
 pytestmark = [pytest.mark.integration, pytest.mark.postgres]
-
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-TEST_PASSWORD_FILE = PROJECT_ROOT / ".secrets/postgres-test-password"
 
 
 def _test_engine(
@@ -48,32 +42,6 @@ def _test_engine(
             else statement_timeout_ms
         ),
     )
-
-
-@pytest.fixture(scope="module")
-def test_database_settings() -> DatabaseSettings:
-    settings = load_database_settings()
-    if (
-        settings.host != "127.0.0.1"
-        or settings.name != "solar_platform_test"
-        or settings.user != "postgres"
-        or Path(os.environ["SOLAR_PLATFORM_DB_PASSWORD_FILE"]).resolve()
-        != TEST_PASSWORD_FILE.resolve()
-    ):
-        pytest.fail("PostgreSQL integration must target the Compose test service")
-
-    result = subprocess.run(
-        ["docker", "compose", "--profile", "test", "port", "postgres-test", "5432"],
-        cwd=PROJECT_ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if result.returncode != 0 or result.stdout.strip() != (
-        f"127.0.0.1:{settings.port}"
-    ):
-        pytest.fail("Compose postgres-test is unavailable at the configured port")
-    return settings
 
 
 @pytest.fixture

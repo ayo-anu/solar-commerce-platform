@@ -1,20 +1,19 @@
 """Real ASGI-stack tests for the B2.2.5 HTTP runtime foundation."""
 
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from typing import Annotated, Any, cast
+from unittest.mock import MagicMock
 from uuid import UUID
 
 import pytest
 from fastapi import Cookie, FastAPI, Header, Request, Response
 from httpx2 import Response as ClientResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 from starlette.testclient import TestClient
 
 import solar_platform.app as app_module
 from solar_platform.api.correlation import REQUEST_ID_HEADER
 from solar_platform.api.problems import MAX_VALIDATION_ISSUES, PROBLEM_MEDIA_TYPE
-from solar_platform.settings import RuntimeEnvironment, Settings
+from solar_platform.settings import DatabaseSettings, RuntimeEnvironment, Settings
 
 pytestmark = pytest.mark.integration
 
@@ -23,7 +22,16 @@ SENTINEL = "DO-NOT-DISCLOSE-REAL-STACK-7fb8bc"
 
 
 def _test_app() -> FastAPI:
-    return app_module.create_app(Settings(environment=RuntimeEnvironment.TEST))
+    return app_module.create_app(
+        Settings(environment=RuntimeEnvironment.TEST),
+        DatabaseSettings(
+            host="127.0.0.1",
+            port=5432,
+            name="solar_platform_test",
+            user="postgres",
+            password=SecretStr("test-password"),
+        ),
+    )
 
 
 def _assert_canonical_uuid4(value: str) -> None:
@@ -69,6 +77,77 @@ def test_liveness_is_minimal_and_correlation_is_edge_owned() -> None:
     assert preserved.json() == {"status": "ok"}
     assert preserved.headers[REQUEST_ID_HEADER] == VALID_UUID4
     assert overwritten.headers[REQUEST_ID_HEADER] == VALID_UUID4
+
+
+def test_readiness_maps_only_false_to_disclosure_safe_503(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = MagicMock()
+    runtime.is_ready.return_value = False
+    monkeypatch.setattr(
+        app_module,
+        "_build_database_runtime",
+        lambda _settings: runtime,
+    )
+
+    with TestClient(_test_app()) as client:
+        liveness = client.get("/health/live", headers={REQUEST_ID_HEADER: VALID_UUID4})
+        readiness = client.get(
+            "/health/ready", headers={REQUEST_ID_HEADER: VALID_UUID4}
+        )
+
+    assert liveness.status_code == 200
+    body = _problem_body(readiness, 503)
+    assert body == {
+        "type": "about:blank",
+        "title": "Service Unavailable",
+        "status": 503,
+        "detail": "The service is temporarily unavailable.",
+        "correlation_id": VALID_UUID4,
+    }
+    runtime.is_ready.assert_called_once_with()
+
+
+def test_readiness_success_is_minimal(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = MagicMock()
+    runtime.is_ready.return_value = True
+    monkeypatch.setattr(
+        app_module,
+        "_build_database_runtime",
+        lambda _settings: runtime,
+    )
+
+    with TestClient(_test_app()) as client:
+        response = client.get("/health/ready", headers={REQUEST_ID_HEADER: VALID_UUID4})
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready"}
+    assert response.headers[REQUEST_ID_HEADER] == VALID_UUID4
+
+
+def test_unexpected_readiness_defect_uses_existing_generic_500(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = MagicMock()
+    runtime.is_ready.side_effect = RuntimeError(SENTINEL)
+    monkeypatch.setattr(
+        app_module,
+        "_build_database_runtime",
+        lambda _settings: runtime,
+    )
+
+    with TestClient(_test_app(), raise_server_exceptions=False) as client:
+        response = client.get("/health/ready", headers={REQUEST_ID_HEADER: VALID_UUID4})
+
+    body = _problem_body(response, 500)
+    assert body == {
+        "type": "about:blank",
+        "title": "Internal Server Error",
+        "status": 500,
+        "detail": "The server could not complete the request.",
+        "correlation_id": VALID_UUID4,
+    }
+    assert SENTINEL not in response.text
 
 
 @pytest.mark.parametrize(
@@ -368,7 +447,7 @@ def test_unexpected_failure_uses_real_server_error_stack_without_disclosure(
         assert sentinel not in visible_surfaces
 
 
-def test_openapi_and_swagger_expose_only_the_liveness_contract() -> None:
+def test_openapi_and_swagger_expose_reviewed_health_contracts() -> None:
     with TestClient(_test_app()) as client:
         schema_response = client.get("/openapi.json")
         docs_response = client.get("/docs")
@@ -378,7 +457,10 @@ def test_openapi_and_swagger_expose_only_the_liveness_contract() -> None:
     assert schema_response.status_code == 200
     schema = cast(dict[str, Any], schema_response.json())
     assert schema["info"] == {"title": "Solar Platform API", "version": "1.0.0"}
-    assert set(cast(dict[str, Any], schema["paths"])) == {"/health/live"}
+    assert set(cast(dict[str, Any], schema["paths"])) == {
+        "/health/live",
+        "/health/ready",
+    }
     operation = schema["paths"]["/health/live"]["get"]
     assert operation["operationId"] == "get_liveness"
     assert operation["summary"] == "Check process liveness"
@@ -399,6 +481,20 @@ def test_openapi_and_swagger_expose_only_the_liveness_contract() -> None:
             "type": "string",
         }
     }
+    readiness_operation = schema["paths"]["/health/ready"]["get"]
+    assert readiness_operation["operationId"] == "get_readiness"
+    assert readiness_operation["summary"] == "Check service readiness"
+    assert readiness_operation["tags"] == ["Health"]
+    readiness_schema = schema["components"]["schemas"]["ReadinessResponse"]
+    assert readiness_schema["additionalProperties"] is False
+    assert readiness_schema["required"] == ["status"]
+    assert readiness_schema["properties"] == {
+        "status": {
+            "const": "ready",
+            "title": "Status",
+            "type": "string",
+        }
+    }
     assert "securitySchemes" not in schema.get("components", {})
     assert "servers" not in schema
     assert docs_response.status_code == 200
@@ -408,32 +504,37 @@ def test_openapi_and_swagger_expose_only_the_liveness_contract() -> None:
     _problem_body(oauth_response, 404)
 
 
-def test_lifespan_enters_and_exits_once_per_independent_client_session(
+def test_lifespan_shuts_down_each_application_runtime_once_without_startup_probe(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    events: list[str] = []
-
-    @asynccontextmanager
-    async def lifespan_spy(_app: FastAPI) -> AsyncIterator[None]:
-        events.append("enter")
-        try:
-            yield
-        finally:
-            events.append("exit")
-
-    monkeypatch.setattr(app_module, "_lifespan", lifespan_spy)
+    first_runtime = MagicMock()
+    second_runtime = MagicMock()
+    first_runtime.is_ready.return_value = True
+    second_runtime.is_ready.return_value = True
+    runtimes = iter((first_runtime, second_runtime))
+    monkeypatch.setattr(
+        app_module,
+        "_build_database_runtime",
+        lambda _settings: next(runtimes),
+    )
     first_app = _test_app()
     second_app = _test_app()
 
     assert first_app is not second_app
-    assert events == []
+    first_runtime.is_ready.assert_not_called()
+    second_runtime.is_ready.assert_not_called()
+    first_runtime.shutdown.assert_not_called()
+    second_runtime.shutdown.assert_not_called()
 
     with TestClient(first_app) as first_client:
-        assert events == ["enter"]
         assert first_client.get("/health/live").status_code == 200
-    assert events == ["enter", "exit"]
+        first_runtime.shutdown.assert_not_called()
+    first_runtime.shutdown.assert_called_once_with()
+    second_runtime.shutdown.assert_not_called()
 
     with TestClient(second_app) as second_client:
-        assert events == ["enter", "exit", "enter"]
         assert second_client.get("/health/live").status_code == 200
-    assert events == ["enter", "exit", "enter", "exit"]
+        second_runtime.shutdown.assert_not_called()
+    second_runtime.shutdown.assert_called_once_with()
+    first_runtime.is_ready.assert_not_called()
+    second_runtime.is_ready.assert_not_called()

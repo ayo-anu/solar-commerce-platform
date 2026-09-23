@@ -7,7 +7,7 @@ from typing import Any, cast
 
 import pytest
 from fastapi import FastAPI, Request, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, SecretStr
 from starlette.testclient import TestClient
 
 from solar_platform.api.correlation import REQUEST_ID_HEADER
@@ -16,7 +16,7 @@ from solar_platform.logging_config import (
     PROJECT_LOGGER_NAME,
     _ProjectLogHandler,
 )
-from solar_platform.settings import RuntimeEnvironment, Settings
+from solar_platform.settings import DatabaseSettings, RuntimeEnvironment, Settings
 
 pytestmark = pytest.mark.integration
 
@@ -73,7 +73,16 @@ def isolated_project_logger() -> Iterator[logging.Logger]:
 
 
 def _app(environment: RuntimeEnvironment) -> FastAPI:
-    return create_app(Settings(environment=environment))
+    return create_app(
+        Settings(environment=environment),
+        DatabaseSettings(
+            host="127.0.0.1",
+            port=5432,
+            name="solar_platform_test",
+            user="postgres",
+            password=SecretStr("test-password"),
+        ),
+    )
 
 
 def _json_lines(stdout: str, stderr: str) -> list[dict[str, Any]]:

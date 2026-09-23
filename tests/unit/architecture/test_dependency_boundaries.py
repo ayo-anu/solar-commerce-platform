@@ -117,6 +117,14 @@ REAL_MODULE_CLASSIFICATIONS = (
     ),
     ModuleClassification(
         match_kind="exact",
+        pattern="solar_platform.database_runtime",
+        capability="platform_database",
+        responsibility="outbound_infrastructure",
+        visibility="private",
+        rationale="B3.1.4 concrete Session and database resource lifecycle.",
+    ),
+    ModuleClassification(
+        match_kind="exact",
         pattern="solar_platform.logging_config",
         capability="platform_logging",
         responsibility="outbound_infrastructure",
@@ -175,10 +183,24 @@ THIRD_PARTY_IMPORT_ALLOWLIST = (
         source_module="solar_platform.database_engine",
     ),
     ThirdPartyImportPermission(
+        responsibility="outbound_infrastructure",
+        top_level_package="sqlalchemy",
+        decision_reference="ADR-002; ADR-003; approved B3.1.4",
+        rationale="The database edge owns concrete Session and pool lifecycle.",
+        source_module="solar_platform.database_runtime",
+    ),
+    ThirdPartyImportPermission(
         responsibility="composition",
         top_level_package="fastapi",
         decision_reference="ADR-002; accepted B2.2.1; approved B2.2.2",
         rationale="The composition root constructs the authorized FastAPI app.",
+    ),
+    ThirdPartyImportPermission(
+        responsibility="composition",
+        top_level_package="starlette",
+        decision_reference="ADR-002; ADR-003; approved B3.1.4",
+        rationale="Application lifespan runs synchronous disposal off the event loop.",
+        source_module="solar_platform.app",
     ),
     ThirdPartyImportPermission(
         responsibility="configuration",
