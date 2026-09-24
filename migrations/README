@@ -1,0 +1,6 @@
+B3.2.1 Alembic migration environment
+
+This environment intentionally contains no revisions or database schema yet.
+Database connectivity comes only from the validated solar platform database
+settings. Online migration commands use a command-local NullPool engine and do
+not inherit the application's QueuePool or statement-timeout policy.

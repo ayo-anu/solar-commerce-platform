@@ -12,6 +12,8 @@ pytestmark = pytest.mark.unit
 PROJECT_PACKAGE = "solar_platform"
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 SOURCE_PACKAGE_ROOT = PROJECT_ROOT / "src" / PROJECT_PACKAGE
+MIGRATION_ENV_PATH = PROJECT_ROOT / "migrations" / "env.py"
+MIGRATION_ENV_MODULE = "solar_platform_migrations.env"
 
 STANDARD_RESPONSIBILITIES = frozenset(
     {
@@ -117,6 +119,14 @@ REAL_MODULE_CLASSIFICATIONS = (
     ),
     ModuleClassification(
         match_kind="exact",
+        pattern="solar_platform.database_metadata",
+        capability="platform_database",
+        responsibility="outbound_infrastructure",
+        visibility="private",
+        rationale="B3.2.1 empty migration metadata and deterministic naming.",
+    ),
+    ModuleClassification(
+        match_kind="exact",
         pattern="solar_platform.database_runtime",
         capability="platform_database",
         responsibility="outbound_infrastructure",
@@ -171,6 +181,14 @@ REAL_MODULE_CLASSIFICATIONS = (
         visibility="private",
         rationale="B2.2.6 disclosure-safe terminal request-event boundary.",
     ),
+    ModuleClassification(
+        match_kind="exact",
+        pattern=MIGRATION_ENV_MODULE,
+        capability="platform_database",
+        responsibility="composition",
+        visibility="private",
+        rationale="B3.2.1 operational Alembic composition boundary.",
+    ),
 )
 
 # Architecture permission only; an entry never authorizes adding a dependency.
@@ -188,6 +206,27 @@ THIRD_PARTY_IMPORT_ALLOWLIST = (
         decision_reference="ADR-002; ADR-003; approved B3.1.4",
         rationale="The database edge owns concrete Session and pool lifecycle.",
         source_module="solar_platform.database_runtime",
+    ),
+    ThirdPartyImportPermission(
+        responsibility="outbound_infrastructure",
+        top_level_package="sqlalchemy",
+        decision_reference="ADR-002; approved B3.2.1",
+        rationale="Migration metadata uses SQLAlchemy naming conventions.",
+        source_module="solar_platform.database_metadata",
+    ),
+    ThirdPartyImportPermission(
+        responsibility="composition",
+        top_level_package="alembic",
+        decision_reference="ADR-002; approved B3.2.1",
+        rationale="The migration command boundary configures Alembic.",
+        source_module=MIGRATION_ENV_MODULE,
+    ),
+    ThirdPartyImportPermission(
+        responsibility="composition",
+        top_level_package="sqlalchemy",
+        decision_reference="ADR-002; approved B3.2.1",
+        rationale="The migration command owns its NullPool Engine policy.",
+        source_module=MIGRATION_ENV_MODULE,
     ),
     ThirdPartyImportPermission(
         responsibility="composition",
@@ -313,6 +352,7 @@ def _load_real_modules() -> tuple[SourceModule, ...]:
     for path in sorted(SOURCE_PACKAGE_ROOT.rglob("*.py")):
         name, is_package = _module_name(path)
         modules.append(SourceModule(name, path.read_text(), is_package))
+    modules.append(SourceModule(MIGRATION_ENV_MODULE, MIGRATION_ENV_PATH.read_text()))
     return tuple(modules)
 
 
@@ -479,6 +519,7 @@ def test_real_source_tree_satisfies_accepted_architecture() -> None:
     modules = _load_real_modules()
     assert modules
     assert any(module.name == "solar_platform" for module in modules)
+    assert any(module.name == MIGRATION_ENV_MODULE for module in modules)
     assert_architecture(
         modules, REAL_MODULE_CLASSIFICATIONS, THIRD_PARTY_IMPORT_ALLOWLIST
     )

@@ -10,6 +10,7 @@ import solar_platform.database_engine as database_engine
 from solar_platform.database_engine import (
     DatabaseEngineOptionsError,
     create_database_engine,
+    create_postgresql_url,
 )
 
 pytestmark = pytest.mark.unit
@@ -28,6 +29,56 @@ def _options() -> dict[str, str | int]:
         "connect_timeout_seconds": 5,
         "statement_timeout_ms": 15000,
     }
+
+
+def test_url_builder_uses_structured_psycopg_url_without_exposing_password() -> None:
+    url = create_postgresql_url(
+        host="127.0.0.1",
+        port=5433,
+        name="solar_platform_test",
+        user="postgres",
+        password=" secret-sentinel ",
+    )
+
+    assert url.drivername == "postgresql+psycopg"
+    assert url.host == "127.0.0.1"
+    assert url.port == 5433
+    assert url.database == "solar_platform_test"
+    assert url.username == "postgres"
+    assert url.password == " secret-sentinel "
+    assert "secret-sentinel" not in str(url)
+    assert "secret-sentinel" not in repr(url)
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    (
+        ("host", ""),
+        ("port", 0),
+        ("name", ""),
+        ("user", ""),
+        ("password", ""),
+    ),
+)
+def test_url_builder_rejects_invalid_values_without_repeating_them(
+    name: str, value: object
+) -> None:
+    options: dict[str, object] = {
+        "host": "127.0.0.1",
+        "port": 5433,
+        "name": "solar_platform_test",
+        "user": "postgres",
+        "password": "secret-sentinel",
+    }
+    options[name] = value
+
+    with pytest.raises(DatabaseEngineOptionsError) as captured:
+        create_postgresql_url(**options)  # type: ignore[arg-type]
+
+    assert str(captured.value) == "Database engine options are invalid."
+    assert "secret-sentinel" not in repr(captured.value)
+    if value:
+        assert str(value) not in str(captured.value)
 
 
 def test_engine_uses_explicit_dialect_pool_and_timeouts(

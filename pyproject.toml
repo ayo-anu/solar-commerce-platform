@@ -9,6 +9,7 @@ description = "Production-grade ecommerce backend foundation for a solar-energy 
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "alembic>=1.20.0,<1.21",
     "fastapi>=0.141.1,<0.142",
     "pydantic>=2.13.5,<2.14",
     "psycopg[binary]>=3.3.6,<3.4",
@@ -49,6 +50,7 @@ line-length = 88
 indent-width = 4
 src = ["src"]
 include = [
+    "migrations/**/*.py",
     "src/**/*.py",
     "tests/**/*.py",
     "scripts/**/*.py",
@@ -77,5 +79,10 @@ docstring-code-format = false
 
 [tool.mypy]
 python_version = "3.12"
-files = ["src", "tests", "scripts"]
+files = ["src", "tests", "scripts", "migrations"]
 strict = true
+
+[tool.alembic]
+script_location = "%(here)s/migrations"
+prepend_sys_path = ["%(here)s/src"]
+output_encoding = "utf-8"

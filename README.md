@@ -12,6 +12,8 @@ supporting ecommerce and later corporate project workflows.
   resource lifecycle, independent liveness, and PostgreSQL readiness
 - Local infrastructure: separate Docker Compose PostgreSQL development and test
   services wired through validated, lazily connecting application infrastructure
+- Migration foundation: an empty Alembic environment with deterministic
+  constraint naming and a command-local PostgreSQL connection policy
 - Technology direction: Python/FastAPI/PostgreSQL modular monolith
 
 The current backend foundation includes:
@@ -26,11 +28,12 @@ The current backend foundation includes:
 - terminal database-resource shutdown through the application lifespan; and
 - structured, redaction-aware terminal request logging as JSON Lines to stderr.
 
-It does not yet include migrations, database schema/models, repositories,
-business transactions, authentication, business APIs, a server/deployment
-entrypoint, or other later-phase behavior. Development continues in small,
-reviewed changes; jurisdiction-sensitive behavior and live-business integrations
-are added only when their requirements and validation boundaries are established.
+It does not yet include migration revisions, a database schema or models,
+repositories, business transactions, authentication, business APIs, a
+server/deployment entrypoint, or other later-phase behavior. Development
+continues in small, reviewed changes; jurisdiction-sensitive behavior and
+live-business integrations are added only when their requirements and
+validation boundaries are established.
 
 ## Backend development workflow
 
@@ -90,15 +93,15 @@ HTTP behavior are covered by the pytest suites below.
 After synchronizing the environment, run the Python lint and formatting checks:
 
 ```bash
-uv run --locked --no-sync ruff check src tests scripts
-uv run --locked --no-sync ruff format --check src tests scripts
+uv run --locked --no-sync ruff check src tests scripts migrations
+uv run --locked --no-sync ruff format --check src tests scripts migrations
 ```
 
 To apply intentional, reviewable fixes and formatting changes, run:
 
 ```bash
-uv run --locked --no-sync ruff check --fix src tests scripts
-uv run --locked --no-sync ruff format src tests scripts
+uv run --locked --no-sync ruff check --fix src tests scripts migrations
+uv run --locked --no-sync ruff format src tests scripts migrations
 ```
 
 Review the resulting diff and rerun both check commands before considering the
@@ -136,8 +139,9 @@ lifecycle, correlation, Problem Details, request logging, and architecture
 boundaries. Integration tests cover installed-package behavior and the real
 ASGI stack for liveness, readiness, lifecycle, OpenAPI, error, correlation, and
 logging behavior. The `unit` and `integration` selections are populated.
-Selections with no matching tests return pytest exit status 5; this is
-currently expected for `migration` and `slow`.
+The migration selection contains an opt-in PostgreSQL smoke and skips unless
+`--run-postgres` is supplied. Selections with no matching tests return pytest
+exit status 5; this is currently expected for `slow`.
 
 ### Run the local quality gate
 
@@ -347,6 +351,43 @@ database work for one operation must remain in one synchronous execution
 context. Application lifespan shutdown occurs after framework serving work has
 drained, makes the runtime terminal, and attempts Engine disposal once; it does
 not claim to force-close arbitrary checked-out Sessions or connections.
+
+### Alembic migration environment
+
+Alembic source configuration lives only in `pyproject.toml`; there is no
+`alembic.ini` and no tracked database URL. The environment currently has empty
+metadata and no revisions, schema, tables, models, or `alembic_version` table.
+Application construction and startup never run migrations, and readiness checks
+database connectivity rather than migration revision state.
+
+The application Engine and migration Engine have separate policies. Application
+traffic uses its bounded QueuePool and statement timeout. Each online Alembic
+command instead creates a command-local NullPool Engine with only the validated
+connection-establishment timeout; it does not inherit pool sizing, pre-ping,
+pool checkout timeout, or the application statement timeout.
+
+These script-directory inspections are database-free:
+
+```bash
+uv run --locked --no-sync alembic -c pyproject.toml heads
+uv run --locked --no-sync alembic -c pyproject.toml history
+```
+
+Both currently produce no revision output. To smoke-test the online environment,
+start a freshly recreated disposable test service, export the test settings from
+the previous section, and run only the non-mutating current-revision inspection:
+
+```bash
+uv run --locked --no-sync alembic -c pyproject.toml current
+uv run --locked --no-sync pytest --run-postgres \
+  -m "integration and postgres and migration" \
+  tests/integration/database/test_migration_environment.py
+```
+
+The integration smoke compares the PostgreSQL catalog before and afterward. It
+requires no non-system relations and no `public.alembic_version` table on either
+side. Revision generation, upgrade/downgrade validation, and `alembic check`
+remain deferred to later reviewed migration-discipline tasks.
 
 ### Dependency-addition policy
 

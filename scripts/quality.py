@@ -6,8 +6,11 @@ import sys
 
 def main() -> int:
     checks = (
-        ("Ruff lint", ("ruff", "check", "src", "tests", "scripts")),
-        ("Ruff format", ("ruff", "format", "--check", "src", "tests", "scripts")),
+        ("Ruff lint", ("ruff", "check", "src", "tests", "scripts", "migrations")),
+        (
+            "Ruff format",
+            ("ruff", "format", "--check", "src", "tests", "scripts", "migrations"),
+        ),
         ("Strict mypy", ("mypy",)),
         ("Complete pytest suite", ("pytest",)),
     )
