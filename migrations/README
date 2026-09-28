@@ -4,3 +4,35 @@ This environment intentionally contains no revisions or database schema yet.
 Database connectivity comes only from the validated solar platform database
 settings. Online migration commands use a command-local NullPool engine and do
 not inherit the application's QueuePool or statement-timeout policy.
+
+Migration-author policy
+
+- Entity identifiers default to application/domain-assigned UUIDv4 values.
+  Declare native PostgreSQL `uuid`, require an explicit value, and do not add an
+  ORM or database UUID default.
+- Persist instants as PostgreSQL `timestamp(6) with time zone` and use aware UTC
+  Python datetimes. Persistence `created_at` and initial `updated_at` server
+  defaults use `statement_timestamp()`, not `CURRENT_TIMESTAMP` or `now()`.
+  Meaningful later updates explicitly set `updated_at = statement_timestamp()`.
+- Use the shared SQLAlchemy metadata and its unchanged `pk_`, `fk_`, `uq_`,
+  `ix_`, and `ck_` naming convention. Give checks semantic names, explicitly
+  name expression/purpose-specific indexes, and keep rendered PostgreSQL names
+  within 63 bytes.
+- Declare nullability explicitly. Columns are `NOT NULL` unless absence has
+  precise semantics.
+- Put persisted uniqueness, foreign keys, and safe row-local immutable
+  predicates in PostgreSQL. Application pre-checks do not replace unique
+  constraints. Do not model cross-row, cross-table, time-relative, or
+  concurrency-sensitive invariants as ordinary checks.
+- Every foreign key must explicitly select `ON DELETE`. Use `CASCADE` only for
+  exclusively owned dependants, `RESTRICT` for independent/shared/history
+  records, and `SET NULL` only for a documented optional reference. PostgreSQL
+  is authoritative; ORM cascade/passive-delete behavior is chosen later by the
+  consuming relationship without duplicating or undermining the FK policy.
+- Add foreign-key indexes only for justified lookup, join, deletion, or
+  query-plan needs. Do not duplicate primary-key or unique indexes.
+- Review Alembic autogeneration manually. Keep one linear head unless a reviewed
+  merge is required, and never rename or renumber an applied revision.
+
+ADR-012 is the authoritative detailed policy. This guidance creates no model,
+table, column, or revision.

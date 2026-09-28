@@ -14,6 +14,9 @@ supporting ecommerce and later corporate project workflows.
   services wired through validated, lazily connecting application infrastructure
 - Migration foundation: an empty Alembic environment with deterministic
   constraint naming and a command-local PostgreSQL connection policy
+- Persistence policy: explicit application/domain-assigned UUIDv4 identity,
+  UTC statement-time bookkeeping, explicit referential actions, and
+  database-enforced integrity conventions for future schemas
 - Technology direction: Python/FastAPI/PostgreSQL modular monolith
 
 The current backend foundation includes:
@@ -388,6 +391,37 @@ The integration smoke compares the PostgreSQL catalog before and afterward. It
 requires no non-system relations and no `public.alembic_version` table on either
 side. Revision generation, upgrade/downgrade validation, and `alembic check`
 remain deferred to later reviewed migration-discipline tasks.
+
+### Persistence conventions for future schemas
+
+Entity identifiers default to UUIDv4. The owning application/domain creation
+path calls `uuid.uuid4()` and assigns the identifier before persistence; ORM and
+database UUID defaults are not used. Python and SQLAlchemy exchange
+`uuid.UUID`, PostgreSQL stores native `uuid`, and the same opaque identifier may
+be public and internal unless a concrete requirement justifies otherwise.
+Identifier opacity never replaces authorization.
+
+Stored instants use timezone-aware UTC Python datetimes and PostgreSQL
+`timestamp(6) with time zone`. Persistence bookkeeping means SQL
+statement-start time: `created_at` and an initial `updated_at` use
+`statement_timestamp()` server defaults, while every subsequent meaningful
+update explicitly assigns `updated_at = statement_timestamp()`. The intended
+invariant is `updated_at >= created_at` under a synchronized PostgreSQL host
+clock. Generic timestamp triggers and ORM `onupdate`/`server_onupdate` behavior
+are not used.
+
+SQL identifiers use unquoted `lower_snake_case` and the existing deterministic
+metadata naming convention. Columns are `NOT NULL` unless absence has precise
+semantics. PostgreSQL enforces business uniqueness, foreign keys, and suitable
+row-local checks; application pre-checks are not concurrency guarantees. Every
+foreign key explicitly chooses `ON DELETE`. PostgreSQL remains authoritative,
+while each consuming relationship later selects consistent SQLAlchemy
+cascade/passive-delete settings. Hard deletion applies only to genuinely
+deletable records; lifecycle state is modeled explicitly, with no universal
+soft-delete mechanism.
+
+These are policies for later consuming schemas. The repository still contains
+no model, table, column, seed, or Alembic revision.
 
 ### Dependency-addition policy
 
