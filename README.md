@@ -12,8 +12,9 @@ supporting ecommerce and later corporate project workflows.
   resource lifecycle, independent liveness, and PostgreSQL readiness
 - Local infrastructure: separate Docker Compose PostgreSQL development and test
   services wired through validated, lazily connecting application infrastructure
-- Migration foundation: an empty Alembic environment with deterministic
-  constraint naming and a command-local PostgreSQL connection policy
+- Migration discipline: an empty Alembic environment with deterministic
+  constraint naming, a command-local PostgreSQL connection policy, and
+  disposable PostgreSQL lifecycle tests
 - Persistence policy: explicit application/domain-assigned UUIDv4 identity,
   UTC statement-time bookkeeping, explicit referential actions, and
   database-enforced integrity conventions for future schemas
@@ -376,21 +377,32 @@ uv run --locked --no-sync alembic -c pyproject.toml heads
 uv run --locked --no-sync alembic -c pyproject.toml history
 ```
 
-Both currently produce no revision output. To smoke-test the online environment,
-start a freshly recreated disposable test service, export the test settings from
-the previous section, and run only the non-mutating current-revision inspection:
+Both currently produce no revision output. To exercise the real Alembic
+environment, start a freshly recreated disposable test service, export the test
+settings from the previous section, and run the migration lifecycle suite:
 
 ```bash
-uv run --locked --no-sync alembic -c pyproject.toml current
 uv run --locked --no-sync pytest --run-postgres \
   -m "integration and postgres and migration" \
   tests/integration/database/test_migration_environment.py
 ```
 
-The integration smoke compares the PostgreSQL catalog before and afterward. It
-requires no non-system relations and no `public.alembic_version` table on either
-side. Revision generation, upgrade/downgrade validation, and `alembic check`
-remain deferred to later reviewed migration-discipline tasks.
+Each test creates an internally named
+`solar_platform_migration_<32 lowercase hex>` database on the separately
+validated Compose test server and drops only that fixture-owned database. The
+suite exercises non-mutating `current`, fresh-to-head upgrade, repeated upgrade
+at head, `alembic check`, and head-to-base downgrade. It also exercises
+current-to-head and one-step downgrade/re-upgrade once real revisions exist;
+those two cases skip explicitly while the graph is empty rather than creating a
+fake migration. Revision state is compared as a set so a reviewed merge
+revision may have multiple parents while the repository retains at most one
+head.
+
+The generic base round-trip compares non-system schema names, relation-backed
+`pg_class` objects, `public.alembic_version`, and its revision rows. It does not
+claim to detect every PostgreSQL object type; migrations that add standalone
+types, functions, extensions, roles, privileges, or similar objects must add
+focused assertions when needed.
 
 ### Persistence conventions for future schemas
 
